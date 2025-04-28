@@ -58,8 +58,6 @@ async function main() {
             return;
         }
 
-        return;
-
         const stockAllocation = StockAllocator.allocate(stocks, BUDGET);
 
         console.log("Balanced Quantity Allocation:");
