@@ -1,97 +1,140 @@
+import dotenv from 'dotenv';
 import { ChartinkScraperService } from "./src/services/ChartinkScraperService.js";
 import { CSVService } from "./src/services/CSVService.js";
 import { DhanService } from "./src/services/DhanService.js";
 import { StockAllocator } from "./src/helpers/StockAllocator.js";
 import { Utils } from "./src/helpers/Utils.js";
 import { OrderExecutor } from "./src/services/OrderExecutor.js";
-import dotenv from 'dotenv';
 
 dotenv.config();
 
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN;
-const DHAN_CLIENT_ID = process.env.DHAN_CLIENT_ID;
-const CSV_FILE = './src/assets/api-scrip-master.csv';
-const BUDGET = 50;
+const {
+  ACCESS_TOKEN,
+  DHAN_CLIENT_ID
+} = process.env;
+
+const CONFIG = {
+  CSV_FILE: './src/assets/api-scrip-master.csv',
+  BUDGET: 50
+};
+
 const ORDER_STATUS = {
-    TRANSIT: 'TRANSIT',
-    PENDING: 'PENDING',
-    REJECTED: 'REJECTED',
-    PART_TRADED: 'PART_TRADED',
-    TRADED: 'TRADED',
-    EXPIRED: 'EXPIRED'
+  TRANSIT: 'TRANSIT',
+  PENDING: 'PENDING',
+  REJECTED: 'REJECTED',
+  PART_TRADED: 'PART_TRADED',
+  TRADED: 'TRADED',
+  EXPIRED: 'EXPIRED'
+};
+
+async function initializeServices() {
+  const dhanService = new DhanService(ACCESS_TOKEN);
+  const orderExecutor = new OrderExecutor(dhanService, DHAN_CLIENT_ID);
+  return { dhanService, orderExecutor };
+}
+
+async function validateFunds(dhanService) {
+  const funds = await dhanService.getFunds();
+
+  if (!funds || !funds.availabelBalance) {
+    throw new Error("Failed to fetch available balance.");
+  }
+
+  console.log(`Available Balance: ₹${funds.availabelBalance}`);
+
+  if (funds.availabelBalance < CONFIG.BUDGET) {
+    throw new Error(`Insufficient funds.`);
+  }
+}
+
+async function fetchFilteredStocks() {
+  const [stocks, csvData] = await Promise.all([
+    ChartinkScraperService.fetchStocks(),
+    CSVService.readCSV(CONFIG.CSV_FILE)
+  ]);
+
+  if (!stocks.length) {
+    throw new Error('No stocks found.');
+  }
+
+  const filteredResults = csvData.filter(row =>
+    stocks.some(stock => row.SEM_TRADING_SYMBOL === stock.nsecode && row.SEM_EXM_EXCH_ID === 'NSE')
+  );
+
+  if (!filteredResults.length) {
+    throw new Error('No matching row found.');
+  }
+
+  return { stocks, filteredResults };
+}
+
+async function placeOrders(orderExecutor, stocks, filteredResults) {
+  const stockAllocation = StockAllocator.allocate(stocks, CONFIG.BUDGET);
+
+  console.log("Balanced Quantity Allocation:");
+
+  for (const [index, quantity] of stockAllocation.allocation.entries()) {
+    if (quantity <= 0) continue;
+
+    const stock = stocks[index];
+    const matchingRow = filteredResults.find(row => row.SEM_TRADING_SYMBOL === stock.nsecode);
+
+    const buyOrder = await executeBuyOrder(orderExecutor, matchingRow, quantity);
+    await placeStopLoss(orderExecutor, buyOrder, matchingRow, quantity);
+  }
+
+  console.log(`Total Spent: ₹${stockAllocation.total}`);
+}
+
+async function executeBuyOrder(orderExecutor, stockRow, quantity) {
+  const response = await orderExecutor.placeBuyOrder(stockRow.SEM_SMST_SECURITY_ID, quantity);
+  console.log(`Buy Order Response: ${JSON.stringify(response)}`);
+
+  const status = await orderExecutor.getOrderStatus(response.orderId);
+  console.log(`Buy Order status ${JSON.stringify(status)}`);
+
+  if (status.orderStatus === ORDER_STATUS.TRADED) {
+    console.log(`Buy Order ${status.orderId} successfully traded at ₹${status.price}.`);
+  } else {
+    throw new Error(`Buy Order ${status.orderId} failed or pending.`);
+  }
+
+  return status;
+}
+
+async function placeStopLoss(orderExecutor, buyOrderStatus, stockRow, quantity) {
+  const stoplossPrice = buyOrderStatus.price - (0.05 * buyOrderStatus.price);
+  const roundedStoploss = Utils.customTickRound(stoplossPrice, stockRow.SEM_TICK_SIZE);
+
+  const stopLossResponse = await orderExecutor.placeStopLossOrder(
+    stockRow.SEM_SMST_SECURITY_ID,
+    quantity,
+    stoplossPrice,
+    roundedStoploss
+  );
+
+  console.log(`Stop Loss Order Response: ${JSON.stringify(stopLossResponse)}`);
+
+  const stopLossStatus = await orderExecutor.getOrderStatus(stopLossResponse.orderId);
+
+  console.log(`Stop Loss Order ${stopLossStatus.orderId} processed: ${stopLossStatus.omsErrorDescription}`);
 }
 
 async function main() {
-    try {
-        const dhanService = new DhanService(ACCESS_TOKEN);
-        const orderExecutor = new OrderExecutor(dhanService, DHAN_CLIENT_ID);
+  try {
+    const { dhanService, orderExecutor } = await initializeServices();
 
-        const funds = await dhanService.getFunds();
-        if (funds && funds.availabelBalance) {
-            console.log(`Available Balance: ₹${funds.availabelBalance}`);
-        } else {
-            console.error("Failed to fetch available balance.");
-        }
+    await validateFunds(dhanService);
 
-        if (funds.availabelBalance < BUDGET) {
-            console.error(`Insufficient funds.`);
-            return;
-        }
+    const { stocks, filteredResults } = await fetchFilteredStocks();
 
-        const [stocks, csvData] = await Promise.all([
-            ChartinkScraperService.fetchStocks(),
-            CSVService.readCSV(CSV_FILE)
-        ]);
+    await placeOrders(orderExecutor, stocks, filteredResults);
 
-        if (stocks.length === 0) {
-            console.log('No stocks found.');
-            return;
-        }
+    console.log("Orders placed successfully.");
 
-        const filters = stocks;
-        const results = csvData.filter(row =>
-            filters.some(f => row.SEM_TRADING_SYMBOL === f.nsecode && row.SEM_EXM_EXCH_ID === 'NSE')
-        );
-
-        if (results.length === 0) {
-            console.log('No matching row found.');
-            return;
-        }
-
-        const stockAllocation = StockAllocator.allocate(stocks, BUDGET);
-
-        console.log("Balanced Quantity Allocation:");
-        for (const [i, qty] of stockAllocation.allocation.entries()) {
-            if (qty > 0) {
-                const stock = stocks[i];
-                const matchingRow = results.find(r => r.SEM_TRADING_SYMBOL === stock.nsecode);
-
-                const buyOrderResponse = await orderExecutor.placeBuyOrder(matchingRow.SEM_SMST_SECURITY_ID, qty);
-                // const buyOrderResponse = { "orderId": "1125042823378", "orderStatus": "TRANSIT" 
-                console.log(`Buy Order Response: ${JSON.stringify(buyOrderResponse)}`);
-
-                const buyOrderStatus = await orderExecutor.getOrderStatus(buyOrderResponse.orderId);
-
-                if (buyOrderStatus.orderStatus === ORDER_STATUS.TRADED) {
-                    console.log(`Buy Order ${buyOrderStatus.orderId} has been successfully traded. | ${buyOrderStatus.omsErrorDescription} at ₹${buyOrderStatus.price}`);
-
-                    const stoploss = buyOrderStatus.price - (0.05 * buyOrderStatus.price);
-                    const roundedPrice = Utils.customTickRound(stoploss, matchingRow.SEM_TICK_SIZE);
-
-                    const stopLossOrderResponse = await orderExecutor.placeStopLossOrder(matchingRow.SEM_SMST_SECURITY_ID, qty, stoploss, roundedPrice);
-                    // const stopLossOrderResponse = { "orderId": "5125042822208", "orderStatus": "TRANSIT" }
-                    console.log(`Stop Loss Order Response: ${JSON.stringify(stopLossOrderResponse)}`);
-                    
-                    const stopLossOrderStatus = await orderExecutor.getOrderStatus(stopLossOrderResponse.orderId);
-                    console.log(`Stop Loss Order ${stopLossOrderStatus.orderId} has been successfully traded. | ${stopLossOrderStatus.omsErrorDescription}`);
-                }
-            }
-        }
-        console.log(`Total Spent: ₹${stockAllocation.total}`);
-        console.log("Orders placed successfully.");
-    } catch (error) {
-        console.error("Error during execution:", error);
-    }
+  } catch (error) {
+    console.error("Error during execution:", error.message || error);
+  }
 }
 
 main();
