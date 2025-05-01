@@ -121,7 +121,7 @@ async function placeStopLoss(orderExecutor, buyOrderStatus, stockRow, quantity) 
   const stopLossResponse = await orderExecutor.placeStopLossOrder(
     stockRow.SEM_SMST_SECURITY_ID,
     quantity,
-    stoplossPrice
+    roundedStoploss
   );
 
   console.log(`Stop Loss Order Response: ${JSON.stringify(stopLossResponse)}`);
