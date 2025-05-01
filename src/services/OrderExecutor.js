@@ -20,18 +20,17 @@ export class OrderExecutor {
       return this.dhanService.placeOrder(payload);
     }
   
-    async placeStopLossOrder(securityId, quantity, triggerPrice, price) {
+    async placeStopLossOrder(securityId, quantity, triggerPrice) {
       const payload = {
         dhanClientId: this.clientId.toString(),
         transactionType: "SELL",
         exchangeSegment: "NSE_EQ",
         productType: "CNC",
-        orderType: "STOP_LOSS",
+        orderType: "STOP_LOSS_MARKET",
         validity: "DAY",
         securityId,
         quantity,
-        triggerPrice,
-        price,
+        triggerPrice
       };
       console.log('Placing stoploss order:', payload);
       return this.dhanService.placeOrder(payload);

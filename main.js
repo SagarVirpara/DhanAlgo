@@ -15,7 +15,7 @@ const {
 
 const CONFIG = {
   CSV_FILE: './src/assets/api-scrip-master.csv',
-  BUDGET: 50
+  BUDGET: 10000 // Example budget
 };
 
 const ORDER_STATUS = {
@@ -87,20 +87,32 @@ async function placeOrders(orderExecutor, stocks, filteredResults) {
 }
 
 async function executeBuyOrder(orderExecutor, stockRow, quantity) {
-  const response = await orderExecutor.placeBuyOrder(stockRow.SEM_SMST_SECURITY_ID, quantity);
-  console.log(`Buy Order Response: ${JSON.stringify(response)}`);
-
-  const status = await orderExecutor.getOrderStatus(response.orderId);
-  console.log(`Buy Order status ${JSON.stringify(status)}`);
-
-  if (status.orderStatus === ORDER_STATUS.TRADED) {
-    console.log(`Buy Order ${status.orderId} successfully traded at ₹${status.price}.`);
-  } else {
-    throw new Error(`Buy Order ${status.orderId} failed or pending.`);
+    const response = await orderExecutor.placeBuyOrder(stockRow.SEM_SMST_SECURITY_ID, quantity);
+    console.log(`Buy Order Response: ${JSON.stringify(response)}`);
+  
+    const maxRetries = 5;
+    const retryDelay = 500; // 0.5 second
+    let attempt = 0;
+    let status;
+  
+    while (attempt < maxRetries) {
+      status = await orderExecutor.getOrderStatus(response.orderId);
+      console.log(`Attempt ${attempt + 1}: Buy Order status ${JSON.stringify(status)}`);
+  
+      if (status.orderStatus === ORDER_STATUS.TRADED) {
+        console.log(`Buy Order ${status.orderId} successfully traded at ₹${status.price}.`);
+        return status;
+      } else if (status.orderStatus !== ORDER_STATUS.TRANSIT) {
+        throw new Error(`Buy Order ${status.orderId} failed with status ${status.orderStatus}.`);
+      }
+  
+      attempt++;
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+  
+    throw new Error(`Buy Order ${response.orderId} still in TRANSIT after ${maxRetries} retries.`);
   }
-
-  return status;
-}
+  
 
 async function placeStopLoss(orderExecutor, buyOrderStatus, stockRow, quantity) {
   const stoplossPrice = buyOrderStatus.price - (0.05 * buyOrderStatus.price);
@@ -109,8 +121,7 @@ async function placeStopLoss(orderExecutor, buyOrderStatus, stockRow, quantity) 
   const stopLossResponse = await orderExecutor.placeStopLossOrder(
     stockRow.SEM_SMST_SECURITY_ID,
     quantity,
-    stoplossPrice,
-    roundedStoploss
+    stoplossPrice
   );
 
   console.log(`Stop Loss Order Response: ${JSON.stringify(stopLossResponse)}`);
