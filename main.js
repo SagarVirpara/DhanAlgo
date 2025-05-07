@@ -171,7 +171,7 @@ async function placeStopLoss(orderExecutor, buyOrderStatus, stockRow, quantity) 
   logger.info(`Placing stop-loss order for ${symbol} x${quantity} @ ₹${roundedStoploss}`);
   logger.debug(`Stop-loss calculated at 5% below buy price of ₹${buyOrderStatus.price}`);
 
-  const stopLossResponse = await orderExecutor.placeStopLossOrder(
+  const stopLossResponse = await orderExecutor.placeForeverOrder(
     stockRow.SEM_SMST_SECURITY_ID,
     quantity,
     roundedStoploss

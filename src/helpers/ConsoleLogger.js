@@ -39,8 +39,7 @@ const ConsoleLogger = {
     
     // Formatted timestamp
     timestamp() {
-      const now = new Date();
-      return now.toISOString().replace('T', ' ').substring(0, 19);
+      return new Date();
     },
     
     // Log level methods
