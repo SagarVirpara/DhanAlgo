@@ -1,8 +1,10 @@
 name: Run Script at 9:16 AM IST
 
-on:
-  schedule:
-    - cron: '46 3 * * *'  # 3:46 AM UTC = 9:16 AM IST
+on: [push]
+
+# on:
+#   schedule:
+#     - cron: '46 3 * * *'  # 3:46 AM UTC = 9:16 AM IST
 
 jobs:
   run-script:
@@ -12,7 +14,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '23.7.0'
       - name: Install dependencies
         run: npm install
       - name: Run script
