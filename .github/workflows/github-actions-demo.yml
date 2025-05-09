@@ -1,13 +1,8 @@
 name: Run Script at 9:16 AM IST
 
 on:
-  push:
-    branches:
-      - main
-
-# on:
-#   schedule:
-#     - cron: '46 3 * * *'  # 3:46 AM UTC = 9:16 AM IST
+  schedule:
+    - cron: '46 3 * * *'  # 3:46 AM UTC = 9:16 AM IST
 
 jobs:
   run-script:
