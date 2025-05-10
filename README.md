@@ -5,7 +5,7 @@
 <h1>📈 DhanAlgo</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Node.js-18.x-green.svg" alt="Node.js Version">
+  <img src="https://img.shields.io/badge/Node.js-23.x-green.svg" alt="Node.js Version">
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/DhanHQ-API-orange.svg" alt="DhanHQ API">
 </p>
